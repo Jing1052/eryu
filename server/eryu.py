@@ -208,6 +208,10 @@ class EryuHandler(BaseHTTPRequestHandler):
             "Referer": "https://music.163.com",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         }
+        real_ip = os.environ.get("NETEASE_REAL_IP", "").strip()
+        if real_ip:
+            headers["X-Real-IP"] = real_ip
+            headers["X-Forwarded-For"] = real_ip
         if extra_headers:
             headers.update(extra_headers)
         if data is not None:
