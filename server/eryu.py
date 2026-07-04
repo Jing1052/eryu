@@ -187,6 +187,9 @@ class EryuHandler(BaseHTTPRequestHandler):
     # ── Netease helpers ──
 
     def _netease_cookie(self) -> str:
+        env = os.environ.get("MUSIC_U", "").strip()
+        if env:
+            return f"MUSIC_U={env}"
         cred = HERE / ".netease_cred"
         try:
             for line in cred.read_text().splitlines():
@@ -1190,8 +1193,9 @@ class ServerState:
     def __init__(self, port: int):
         self.host = "0.0.0.0"
         self.port = port
-        self.shared_secret = _load_or_create_secret()
-        self.data_dir = HERE / "data"
+        self.shared_secret = os.environ.get("AUTH_TOKEN", "").strip() or _load_or_create_secret()
+        data_dir_env = os.environ.get("DATA_DIR", "").strip()
+        self.data_dir = Path(data_dir_env) if data_dir_env else HERE / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         (self.data_dir / "music_cache").mkdir(parents=True, exist_ok=True)
 
@@ -1208,10 +1212,14 @@ def main():
     logger.info("Data dir: %s", state.data_dir)
     if state.shared_secret:
         logger.info("Auth token: %s", state.shared_secret[:8] + "...")
-        logger.info("(Full token in %s)", HERE / ".secret")
+        if os.environ.get("AUTH_TOKEN", "").strip():
+            logger.info("(Token from AUTH_TOKEN env var)")
+        else:
+            logger.info("(Full token in %s)", HERE / ".secret")
     else:
         logger.warning("No shared secret — all requests allowed!")
-    logger.info("Netease cookie: %s", "configured" if (HERE / ".netease_cred").exists() else "NOT FOUND — create .netease_cred with MUSIC_U=<value>")
+    has_cookie = bool(os.environ.get("MUSIC_U", "").strip()) or (HERE / ".netease_cred").exists()
+    logger.info("Netease cookie: %s", "configured" if has_cookie else "NOT FOUND — set MUSIC_U env var or create .netease_cred with MUSIC_U=<value>")
     logger.info("Frontend: %s", "found" if (HERE.parent / "client").is_dir() else "not found (place files in ../client/)")
     try:
         server.serve_forever()

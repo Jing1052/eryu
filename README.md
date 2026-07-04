@@ -36,6 +36,20 @@ Open `http://localhost:9090` in your browser. The auth token is auto-generated a
 | Environment Variable | Default | Description |
 |---|---|---|
 | `PORT` | `9090` | Server port |
+| `MUSIC_U` | — | NetEase Cloud Music cookie value (takes priority over `server/.netease_cred`) |
+| `AUTH_TOKEN` | auto-generated | Shared auth token (takes priority over `server/.secret`; set it explicitly on ephemeral hosts so the token survives redeploys) |
+| `DATA_DIR` | `server/data` | Where playlists, cache, and song memory are stored (mount a volume here on container platforms) |
+
+### Docker
+
+```bash
+docker build -t eryu .
+docker run -p 9090:9090 \
+  -e MUSIC_U=your_cookie_here \
+  -e AUTH_TOKEN=pick_a_long_random_string \
+  -v eryu-data:/app/data \
+  eryu
+```
 
 ## API
 
