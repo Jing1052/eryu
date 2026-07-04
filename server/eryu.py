@@ -131,7 +131,7 @@ class Room:
         with self.cond:
             self.seq += 1
             evt: dict[str, Any] = {"seq": self.seq, "ts": time.time(), "user": user, "type": etype}
-            for k in ("song", "position", "line"):
+            for k in ("song", "position", "line", "text"):
                 if body.get(k) is not None:
                     evt[k] = body[k]
             self.events.append(evt)

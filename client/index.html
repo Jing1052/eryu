@@ -578,6 +578,77 @@ img { display: block; }
   100% { opacity: 0; transform: translate(-50%, -100px) scale(0.9); }
 }
 
+/* two avatars joined by a cord — the heart of the room */
+.tg-bond { position: relative; height: 138px; margin: 8px 0 2px; }
+.tg-cord { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.tg-cord path { fill: none; stroke: color-mix(in srgb, var(--accent) 42%, transparent); stroke-width: 1.4; }
+.tg-cord circle { fill: var(--accent); }
+.tg-heads {
+  position: absolute; top: 30px; left: 0; right: 0;
+  display: flex; justify-content: space-between; padding: 0 10px;
+}
+.tg-head-col { display: flex; flex-direction: column; align-items: center; gap: 7px; width: 108px; }
+.tg-bub {
+  font-size: 11px; color: var(--ink); opacity: 0.85;
+  background: color-mix(in srgb, var(--surface-2) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 12px; padding: 5px 11px; max-width: 108px; text-align: center;
+  line-height: 1.3; outline: none; position: relative; white-space: nowrap;
+}
+.tg-bub:empty::before { content: '说句话…'; opacity: 0.4; }
+.tg-bub::after {
+  content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%) rotate(45deg);
+  width: 8px; height: 8px; background: color-mix(in srgb, var(--surface-2) 90%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.tg-bond-ava {
+  width: 54px; height: 54px; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; font-weight: 700; color: var(--accent);
+  overflow: hidden; animation: tgPulse 2.6s ease-in-out infinite;
+}
+.tg-bond-ava.ghost { animation: none; opacity: 0.35; box-shadow: none; border: 1px dashed color-mix(in srgb, var(--ink) 30%, transparent); background: transparent; }
+.tg-bond-ava img { width: 100%; height: 100%; object-fit: cover; }
+.tg-bond-name { font-size: 10px; color: var(--ink); opacity: 0.5; }
+
+.tg-stat {
+  text-align: center; font-size: 12px; color: var(--ink); opacity: 0.55;
+  margin: 0 0 16px; letter-spacing: 0.3px;
+}
+.tg-stat b { color: var(--accent); opacity: 1; font-weight: 600; }
+.tg-km { color: var(--accent); font-weight: 600; outline: none; border-bottom: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent); padding: 0 1px; }
+
+/* chat bubbles inside the feed */
+.tg-say { display: flex; gap: 8px; align-items: flex-end; }
+.tg-say.mine { flex-direction: row-reverse; }
+.tg-say-bubble {
+  max-width: 74%; font-size: 13px; line-height: 1.4; padding: 8px 12px;
+  border-radius: 16px; color: var(--ink); word-break: break-word;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.tg-say.mine .tg-say-bubble { background: var(--accent); color: #fff; }
+.tg-say-col { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.tg-say.mine .tg-say-col { align-items: flex-end; }
+.tg-say-who { font-size: 9px; color: var(--ink); opacity: 0.4; margin: 0 4px 3px; }
+
+.tg-chat {
+  display: flex; align-items: center; gap: 8px; margin-top: 12px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border-radius: 22px; padding: 6px 6px 6px 16px;
+}
+.tg-chat-input {
+  flex: 1; border: none; background: transparent; font-size: 13px; color: var(--ink);
+  outline: none; min-width: 0; padding: 6px 0;
+}
+.tg-chat-input::placeholder { color: var(--ink); opacity: 0.3; }
+.tg-chat-send {
+  width: 34px; height: 34px; border-radius: 50%; border: none; flex-shrink: 0;
+  background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.tg-chat-send:active { opacity: 0.8; }
+
 /* ── Toast ── */
 .toast {
   position: fixed; top: 56px; left: 50%; transform: translateX(-50%);
@@ -802,9 +873,11 @@ const together = {
   polling: false,
   muteUntil: 0,
   softMuteUntil: 0,
-  feed: [],          // activity timeline entries {ts, user, type, mine, song, line}
+  feed: [],          // activity timeline entries {ts, user, type, mine, song, line, text}
   controlledBy: '',  // who last drove playback (name), for the "谁在放" line
   panelOpen: false,
+  secs: 0,           // cumulative seconds spent together in the room (persisted)
+  tickTimer: null,   // 1s interval that grows secs while a partner is present
 };
 
 function canPub() { return together.on && Date.now() >= together.muteUntil; }
@@ -816,7 +889,7 @@ function publishRoom(type, extra) {
     together.controlledBy = together.user;
   }
   logFeed(together.user, type, extra, true);
-  renderTogetherPanel();
+  tgRenderNow();
 }
 
 function roomSong(s) {
@@ -838,6 +911,8 @@ async function toggleTogether() {
     together.on = false;
     together.partners = [];
     together.controlledBy = '';
+    if (together.tickTimer) { clearInterval(together.tickTimer); together.tickTimer = null; }
+    tgSet(TG_SECS_KEY, String(together.secs || 0));
     renderTogetherBtn();
     renderTogetherPanel();
     showToast('left the room');
@@ -851,6 +926,8 @@ async function toggleTogether() {
   together.controlledBy = '';
   together.muteUntil = 0;
   together.softMuteUntil = 0;
+  together.secs = parseInt(tgGet(TG_SECS_KEY, '0'), 10) || 0;
+  if (!together.tickTimer) together.tickTimer = setInterval(tgTick, 1000);
   renderTogetherBtn();
   renderTogetherPanel();
   let d = null;
@@ -895,7 +972,7 @@ async function pollRoom() {
       if (d.seq != null) together.lastSeq = d.seq;
       const prev = together.partners.join(',');
       together.partners = (d.users || []).filter(x => x !== together.user);
-      if (together.partners.join(',') !== prev) { renderTogetherBtn(); renderTogetherPanel(); }
+      if (together.partners.join(',') !== prev) { renderTogetherBtn(); tgRenderBond(); tgRenderStat(); }
       for (const e of (d.events || [])) {
         if (e.user === together.user) continue;
         applyRoomEvent(e);
@@ -912,7 +989,7 @@ function applyRoomEvent(e) {
   if (e.type === 'track' || e.type === 'play' || e.type === 'pause' || e.type === 'seek') {
     together.controlledBy = who;
   }
-  logFeed(who, e.type, { song: e.song, line: e.line }, false);
+  logFeed(who, e.type, { song: e.song, line: e.line, text: e.text }, false);
   if (e.type === 'heart') spawnHeartBloom();
   if (e.type === 'track' && e.song) {
     // Both clients auto-advance to the same queued song — don't restart it
@@ -947,7 +1024,7 @@ function applyRoomEvent(e) {
   } else if (e.type === 'bye') {
     showToast(who + ' left');
   }
-  renderTogetherPanel();
+  tgRenderNow();
 }
 
 function renderTogetherBtn() {
@@ -960,8 +1037,22 @@ function renderTogetherBtn() {
     : 'listen together';
 }
 
-// ── Listen Together panel (presence + shared now-playing + activity feed) ──
-const TG_FEED_TYPES = new Set(['track', 'heart', 'quote', 'hello', 'bye']);
+// ── Listen Together panel: bond + shared now-playing + activity/chat feed ──
+const TG_FEED_TYPES = new Set(['track', 'heart', 'quote', 'hello', 'bye', 'say']);
+const TG_KM_KEY = 'eryu_tg_km';
+const TG_SECS_KEY = 'eryu_tg_secs';
+const TG_BUB_YOU_KEY = 'eryu_tg_bub_you';
+const TG_BUB_PARTNER_KEY = 'eryu_tg_bub_partner';
+
+function tgGet(k, def) { try { const v = localStorage.getItem(k); return v == null ? def : v; } catch { return def; } }
+function tgSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+function tgFmtDur(secs) {
+  const m = Math.floor((secs || 0) / 60);
+  if (m < 60) return m + ' 分钟';
+  const h = Math.floor(m / 60), mm = m % 60;
+  return h + ' 小时' + (mm ? ' ' + mm + ' 分钟' : '');
+}
 
 function logFeed(user, type, extra, mine) {
   if (!TG_FEED_TYPES.has(type)) return;
@@ -969,12 +1060,16 @@ function logFeed(user, type, extra, mine) {
     ts: Date.now(), user, type, mine: !!mine,
     song: (extra && extra.song) || null,
     line: (extra && extra.line) || null,
+    text: (extra && extra.text) || null,
   });
-  if (together.feed.length > 60) together.feed.splice(0, together.feed.length - 60);
+  if (together.feed.length > 80) together.feed.splice(0, together.feed.length - 80);
+  tgRenderFeed();
 }
 
 function openTogether() {
   together.panelOpen = true;
+  together.secs = parseInt(tgGet(TG_SECS_KEY, '0'), 10) || 0;
+  if (together.on && !together.tickTimer) together.tickTimer = setInterval(tgTick, 1000);
   renderTogetherPanel();
   const v = document.getElementById('together-view');
   if (v) v.classList.remove('hidden');
@@ -984,6 +1079,15 @@ function closeTogether() {
   together.panelOpen = false;
   const v = document.getElementById('together-view');
   if (v) v.classList.add('hidden');
+}
+
+function tgTick() {
+  if (together.on && together.partners.length > 0) {
+    together.secs++;
+    if (together.secs % 15 === 0) tgSet(TG_SECS_KEY, String(together.secs));
+    const t = document.getElementById('tg-stat-time');
+    if (t) t.textContent = tgFmtDur(together.secs);
+  }
 }
 
 function tgAvatar(name, isYou) {
@@ -1001,6 +1105,15 @@ function tgRelTime(ts) {
 }
 
 function tgFeedEntryHTML(e) {
+  if (e.type === 'say') {
+    const who = e.mine ? '你' : esc(e.user || '?');
+    return `<div class="tg-say ${e.mine ? 'mine' : ''}">
+      <div class="tg-say-col">
+        ${e.mine ? '' : `<div class="tg-say-who">${who}</div>`}
+        <div class="tg-say-bubble">${esc(e.text || '')}</div>
+      </div>
+    </div>`;
+  }
   const who = e.mine ? '你' : esc(e.user || '?');
   const s = e.song;
   let ico = '·', txt = '', cls = '';
@@ -1027,64 +1140,13 @@ function tgFeedEntryHTML(e) {
   </div>`;
 }
 
+// Full shell rebuild — only on open / room on-off toggle. Room events touch the
+// sub-sections (bond/now/feed) individually so the chat input never gets wiped.
 function renderTogetherPanel() {
   if (!together.panelOpen) return;
   const v = document.getElementById('together-view');
   if (!v) return;
   const on = together.on;
-  const partners = together.partners;
-  const you = together.user || '你';
-
-  let status;
-  if (!on) {
-    status = '房间关着。开一间，和她一起听同一首歌，同一个此刻。';
-  } else if (partners.length === 0) {
-    status = `房间开着，在等人来<span class="accent"> · ${esc(you)}</span>`;
-  } else {
-    status = `正在和 <span class="accent">${esc(partners.join('、'))}</span> 一起听`;
-  }
-
-  let presence = '';
-  if (on) {
-    const people = [{ name: you, you: true }].concat(partners.map(p => ({ name: p, you: false })));
-    presence = '<div class="tg-presence">' + people.map(pp => `
-      <div class="tg-person live">
-        <div class="tg-ava">${tgAvatar(pp.name, pp.you)}</div>
-        <div class="tg-person-name">${pp.you ? '你' : esc(pp.name)}</div>
-      </div>`).join('') + '</div>';
-  }
-
-  let now = '';
-  if (on && state.song) {
-    const s = state.song;
-    let by = '';
-    if (together.controlledBy) {
-      by = together.controlledBy === you ? '你在放' : esc(together.controlledBy) + ' 在放';
-    }
-    now = `
-      <div class="tg-now">
-        <img src="${esc(s.cover)}" class="tg-now-cover" alt="" />
-        <div class="tg-now-info">
-          <div class="tg-now-name">${esc(s.name)}</div>
-          <div class="tg-now-sub">${esc(s.artist)}</div>
-          ${by ? `<div class="tg-now-by">${by}</div>` : ''}
-        </div>
-        <button class="tg-heart" id="tg-heart" title="送一颗心">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 21s-7.5-4.9-10-9.2C.3 8.6 1.7 5 5 5c2 0 3.2 1.1 4 2.3C9.8 6.1 11 5 13 5c3.3 0 4.7 3.6 3 6.8C19.5 16.1 12 21 12 21z"/></svg>
-        </button>
-      </div>`;
-  }
-
-  let feed = '';
-  if (on) {
-    const items = together.feed;
-    feed = `<div class="tg-feed-hd">此刻</div><div class="tg-feed" id="tg-feed">`
-      + (items.length
-          ? items.map(tgFeedEntryHTML).join('')
-          : '<div class="tg-feed-empty">还没有动静，放首歌吧</div>')
-      + `</div>`;
-  }
-
   v.innerHTML = `
     <div class="tg-scrim" id="tg-scrim"></div>
     <div class="tg-sheet">
@@ -1093,20 +1155,129 @@ function renderTogetherPanel() {
         <div class="tg-title">一起听歌</div>
         <button class="tg-close" id="tg-close">✕</button>
       </div>
-      <div class="tg-status">${status}</div>
-      ${presence}
-      ${now}
-      ${feed}
+      ${on ? `
+        <div class="tg-bond" id="tg-bond"></div>
+        <div class="tg-stat" id="tg-stat"></div>
+        <div id="tg-now-wrap"></div>
+        <div class="tg-feed-hd">此刻</div>
+        <div class="tg-feed" id="tg-feed"></div>
+        <div class="tg-chat">
+          <input class="tg-chat-input" id="tg-chat-input" placeholder="边听边说…" maxlength="200" autocomplete="off" />
+          <button class="tg-chat-send" id="tg-chat-send" title="发送">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      ` : `
+        <div class="tg-status">房间关着。开一间，和她一起听同一首歌，同一个此刻。</div>
+      `}
       <button class="tg-toggle ${on ? 'on' : ''}" id="tg-toggle">${on ? '离开房间' : '开一间房 · 一起听'}</button>
     </div>`;
 
   document.getElementById('tg-scrim').onclick = closeTogether;
   document.getElementById('tg-close').onclick = closeTogether;
   document.getElementById('tg-toggle').onclick = toggleTogether;
+  if (on) {
+    tgRenderBond();
+    tgRenderStat();
+    tgRenderNow();
+    tgRenderFeed();
+    const send = document.getElementById('tg-chat-send');
+    const inp = document.getElementById('tg-chat-input');
+    if (send) send.onclick = tgSendChat;
+    if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); tgSendChat(); } });
+  }
+}
+
+function tgRenderBond() {
+  const el = document.getElementById('tg-bond');
+  if (!el) return;
+  const you = together.user || '你';
+  const partner = together.partners[0] || '';
+  const bubYou = tgGet(TG_BUB_YOU_KEY, '嗯嗯！');
+  const bubPartner = tgGet(TG_BUB_PARTNER_KEY, '今天也一起听');
+  const partnerAva = partner
+    ? `<div class="tg-bond-ava">${esc(partner.trim().charAt(0).toUpperCase())}</div>`
+    : `<div class="tg-bond-ava ghost">?</div>`;
+  el.innerHTML = `
+    <svg class="tg-cord" viewBox="0 0 100 150" preserveAspectRatio="none">
+      <path d="M18 90 C 18 124, 82 124, 82 90" />
+    </svg>
+    <div class="tg-heads">
+      <div class="tg-head-col">
+        <div class="tg-bub" id="tg-bub-you" contenteditable="true">${esc(bubYou)}</div>
+        <div class="tg-bond-ava">${tgAvatar(you, true)}</div>
+        <div class="tg-bond-name">你</div>
+      </div>
+      <div class="tg-head-col">
+        <div class="tg-bub" id="tg-bub-partner" contenteditable="true">${esc(bubPartner)}</div>
+        ${partnerAva}
+        <div class="tg-bond-name">${partner ? esc(partner) : '等 TA 来'}</div>
+      </div>
+    </div>`;
+  const by = document.getElementById('tg-bub-you');
+  const bp = document.getElementById('tg-bub-partner');
+  if (by) by.onblur = () => tgSet(TG_BUB_YOU_KEY, (by.textContent || '').trim());
+  if (bp) bp.onblur = () => tgSet(TG_BUB_PARTNER_KEY, (bp.textContent || '').trim());
+}
+
+function tgRenderStat() {
+  const el = document.getElementById('tg-stat');
+  if (!el) return;
+  const km = tgGet(TG_KM_KEY, '520');
+  el.innerHTML = `相距 <span class="tg-km" id="tg-km" contenteditable="true">${esc(km)}</span> 公里 · 一起听了 <b id="tg-stat-time">${tgFmtDur(together.secs)}</b>`;
+  const kmEl = document.getElementById('tg-km');
+  if (kmEl) {
+    kmEl.onblur = () => {
+      const val = (kmEl.textContent || '').replace(/[^0-9]/g, '').slice(0, 6) || '0';
+      kmEl.textContent = val;
+      tgSet(TG_KM_KEY, val);
+    };
+    kmEl.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); kmEl.blur(); } };
+  }
+}
+
+function tgRenderNow() {
+  const wrap = document.getElementById('tg-now-wrap');
+  if (!wrap) return;
+  if (!state.song) { wrap.innerHTML = ''; return; }
+  const you = together.user || '你';
+  const s = state.song;
+  let by = '';
+  if (together.controlledBy) by = together.controlledBy === you ? '你在放' : esc(together.controlledBy) + ' 在放';
+  wrap.innerHTML = `
+    <div class="tg-now">
+      <img src="${esc(s.cover)}" class="tg-now-cover" alt="" />
+      <div class="tg-now-info">
+        <div class="tg-now-name">${esc(s.name)}</div>
+        <div class="tg-now-sub">${esc(s.artist)}</div>
+        ${by ? `<div class="tg-now-by">${by}</div>` : ''}
+      </div>
+      <button class="tg-heart" id="tg-heart" title="送一颗心">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 21s-7.5-4.9-10-9.2C.3 8.6 1.7 5 5 5c2 0 3.2 1.1 4 2.3C9.8 6.1 11 5 13 5c3.3 0 4.7 3.6 3 6.8C19.5 16.1 12 21 12 21z"/></svg>
+      </button>
+    </div>`;
   const hb = document.getElementById('tg-heart');
   if (hb) hb.onclick = sendHeartFromPanel;
+}
+
+function tgRenderFeed() {
   const fe = document.getElementById('tg-feed');
-  if (fe) fe.scrollTop = fe.scrollHeight;
+  if (!fe) return;
+  const items = together.feed;
+  fe.innerHTML = items.length
+    ? items.map(tgFeedEntryHTML).join('')
+    : '<div class="tg-feed-empty">还没有动静，放首歌吧</div>';
+  fe.scrollTop = fe.scrollHeight;
+}
+
+function tgSendChat() {
+  const inp = document.getElementById('tg-chat-input');
+  if (!inp) return;
+  const text = (inp.value || '').trim();
+  if (!text) return;
+  if (!together.on) { showToast('先开一间房'); return; }
+  inp.value = '';
+  publishRoom('say', { text });
 }
 
 function sendHeartFromPanel() {
