@@ -468,6 +468,116 @@ img { display: block; }
   text-align: center; color: var(--ink); opacity: 0.3; padding: 60px 0; font-size: 13px;
 }
 
+/* ── Listen Together Panel ── */
+.together-view {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  transition: opacity 0.28s ease;
+}
+.together-view.hidden { opacity: 0; pointer-events: none; }
+.tg-scrim {
+  position: absolute; inset: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.tg-sheet {
+  position: relative; z-index: 1;
+  background: var(--surface);
+  border-radius: 26px 26px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 -8px 40px rgba(0,0,0,0.45);
+  padding: 6px 20px calc(env(safe-area-inset-bottom, 0px) + 18px);
+  max-height: 84%; display: flex; flex-direction: column;
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.together-view.hidden .tg-sheet { transform: translateY(100%); }
+.tg-handle {
+  width: 36px; height: 4px; border-radius: 2px; margin: 8px auto 12px;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.tg-head { display: flex; align-items: center; justify-content: space-between; }
+.tg-title { font-size: 17px; font-weight: 700; letter-spacing: 1.5px; color: var(--ink); }
+.tg-close { background: none; border: none; color: var(--ink); opacity: 0.4; font-size: 19px; padding: 4px 2px; }
+.tg-status { font-size: 12px; color: var(--ink); opacity: 0.5; margin: 6px 0 16px; line-height: 1.4; }
+.tg-status .accent { color: var(--accent); opacity: 1; font-weight: 600; }
+
+.tg-presence { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.tg-person { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 52px; }
+.tg-ava {
+  width: 46px; height: 46px; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 700; color: var(--accent);
+  position: relative; overflow: hidden;
+}
+.tg-ava img { width: 100%; height: 100%; object-fit: cover; }
+.tg-person.live .tg-ava { animation: tgPulse 2.4s ease-in-out infinite; }
+@keyframes tgPulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent); }
+  50% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 5px var(--accent); }
+}
+.tg-person-name {
+  font-size: 10px; color: var(--ink); opacity: 0.55; max-width: 52px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
+}
+
+.tg-now {
+  display: flex; align-items: center; gap: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 16px; padding: 11px; margin-bottom: 16px;
+}
+.tg-now-cover { width: 50px; height: 50px; border-radius: 10px; object-fit: cover; flex-shrink: 0; box-shadow: var(--shadow-md); }
+.tg-now-info { flex: 1; min-width: 0; }
+.tg-now-name { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg-now-sub { font-size: 11px; color: var(--ink); opacity: 0.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.tg-now-by { font-size: 10px; color: var(--accent); opacity: 0.85; margin-top: 4px; letter-spacing: 0.3px; }
+.tg-heart {
+  width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+  border: none; background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent); display: flex; align-items: center; justify-content: center;
+  transition: transform 0.12s, background 0.15s;
+}
+.tg-heart:active { transform: scale(0.85); background: color-mix(in srgb, var(--accent) 26%, transparent); }
+
+.tg-feed-hd { font-size: 11px; color: var(--ink); opacity: 0.35; letter-spacing: 0.5px; margin-bottom: 10px; }
+.tg-feed {
+  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column; gap: 11px; min-height: 56px;
+}
+.tg-feed-empty { text-align: center; color: var(--ink); opacity: 0.25; font-size: 12px; padding: 28px 0; }
+.tg-evt { display: flex; align-items: center; gap: 9px; }
+.tg-evt-ico {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1;
+  background: color-mix(in srgb, var(--ink) 7%, transparent); color: var(--ink); opacity: 0.6;
+}
+.tg-evt.heart .tg-evt-ico { background: var(--accent-tint); color: var(--accent); opacity: 1; }
+.tg-evt-cover { width: 26px; height: 26px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+.tg-evt-txt { flex: 1; min-width: 0; font-size: 12px; color: var(--ink); opacity: 0.7; line-height: 1.35; }
+.tg-evt-txt b { color: var(--ink); opacity: 1; font-weight: 600; }
+.tg-evt.mine .tg-evt-txt b:first-child { color: var(--accent); }
+.tg-evt-time { font-size: 9px; color: var(--ink); opacity: 0.3; flex-shrink: 0; }
+
+.tg-toggle {
+  margin-top: 16px; width: 100%; padding: 13px; border-radius: 16px; border: none;
+  font-size: 14px; font-weight: 600; letter-spacing: 0.5px;
+  background: var(--accent); color: #fff; transition: background 0.15s, opacity 0.15s;
+}
+.tg-toggle:active { opacity: 0.85; }
+.tg-toggle.on { background: color-mix(in srgb, var(--ink) 10%, transparent); color: var(--ink); opacity: 0.7; }
+
+.tg-float-heart {
+  position: fixed; left: 50%; bottom: 30%; z-index: 300;
+  color: var(--accent); font-size: 30px; pointer-events: none;
+  animation: tgFloat 0.9s ease-out forwards;
+}
+@keyframes tgFloat {
+  0% { opacity: 0; transform: translate(-50%, 0) scale(0.6); }
+  25% { opacity: 1; transform: translate(-50%, -12px) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -100px) scale(0.9); }
+}
+
 /* ── Toast ── */
 .toast {
   position: fixed; top: 56px; left: 50%; transform: translateX(-50%);
@@ -692,6 +802,9 @@ const together = {
   polling: false,
   muteUntil: 0,
   softMuteUntil: 0,
+  feed: [],          // activity timeline entries {ts, user, type, mine, song, line}
+  controlledBy: '',  // who last drove playback (name), for the "谁在放" line
+  panelOpen: false,
 };
 
 function canPub() { return together.on && Date.now() >= together.muteUntil; }
@@ -699,6 +812,11 @@ function canPubTransport() { return canPub() && Date.now() >= together.softMuteU
 
 function publishRoom(type, extra) {
   apiPost('/music/room/event', { user: together.user, type, ...(extra || {}) }).catch(() => {});
+  if (type === 'track' || type === 'play' || type === 'pause' || type === 'seek') {
+    together.controlledBy = together.user;
+  }
+  logFeed(together.user, type, extra, true);
+  renderTogetherPanel();
 }
 
 function roomSong(s) {
@@ -719,7 +837,9 @@ async function toggleTogether() {
     publishRoom('bye');
     together.on = false;
     together.partners = [];
+    together.controlledBy = '';
     renderTogetherBtn();
+    renderTogetherPanel();
     showToast('left the room');
     return;
   }
@@ -727,9 +847,12 @@ async function toggleTogether() {
   if (!u) return;
   together.user = u;
   together.on = true;
+  together.feed = [];
+  together.controlledBy = '';
   together.muteUntil = 0;
   together.softMuteUntil = 0;
   renderTogetherBtn();
+  renderTogetherPanel();
   let d = null;
   try { d = await api('/music/room?user=' + encodeURIComponent(u)); } catch {}
   together.lastSeq = d?.seq || 0;
@@ -772,7 +895,7 @@ async function pollRoom() {
       if (d.seq != null) together.lastSeq = d.seq;
       const prev = together.partners.join(',');
       together.partners = (d.users || []).filter(x => x !== together.user);
-      if (together.partners.join(',') !== prev) renderTogetherBtn();
+      if (together.partners.join(',') !== prev) { renderTogetherBtn(); renderTogetherPanel(); }
       for (const e of (d.events || [])) {
         if (e.user === together.user) continue;
         applyRoomEvent(e);
@@ -786,6 +909,11 @@ async function pollRoom() {
 
 function applyRoomEvent(e) {
   const who = e.user || '?';
+  if (e.type === 'track' || e.type === 'play' || e.type === 'pause' || e.type === 'seek') {
+    together.controlledBy = who;
+  }
+  logFeed(who, e.type, { song: e.song, line: e.line }, false);
+  if (e.type === 'heart') spawnHeartBloom();
   if (e.type === 'track' && e.song) {
     // Both clients auto-advance to the same queued song — don't restart it
     if (e.song.songId === state.song?.songId && !audio.paused && audio.currentTime < 8) return;
@@ -819,6 +947,7 @@ function applyRoomEvent(e) {
   } else if (e.type === 'bye') {
     showToast(who + ' left');
   }
+  renderTogetherPanel();
 }
 
 function renderTogetherBtn() {
@@ -829,6 +958,170 @@ function renderTogetherBtn() {
   btn.title = together.on
     ? (together.partners.length ? 'listening with ' + together.partners.join(', ') : 'alone in the room')
     : 'listen together';
+}
+
+// ── Listen Together panel (presence + shared now-playing + activity feed) ──
+const TG_FEED_TYPES = new Set(['track', 'heart', 'quote', 'hello', 'bye']);
+
+function logFeed(user, type, extra, mine) {
+  if (!TG_FEED_TYPES.has(type)) return;
+  together.feed.push({
+    ts: Date.now(), user, type, mine: !!mine,
+    song: (extra && extra.song) || null,
+    line: (extra && extra.line) || null,
+  });
+  if (together.feed.length > 60) together.feed.splice(0, together.feed.length - 60);
+}
+
+function openTogether() {
+  together.panelOpen = true;
+  renderTogetherPanel();
+  const v = document.getElementById('together-view');
+  if (v) v.classList.remove('hidden');
+}
+
+function closeTogether() {
+  together.panelOpen = false;
+  const v = document.getElementById('together-view');
+  if (v) v.classList.add('hidden');
+}
+
+function tgAvatar(name, isYou) {
+  if (isYou && homeProfile && homeProfile.avatar) {
+    return `<img src="${esc(homeProfile.avatar)}" alt="" />`;
+  }
+  return esc((name || '?').trim().charAt(0).toUpperCase() || '?');
+}
+
+function tgRelTime(ts) {
+  const d = Math.max(0, Date.now() - ts);
+  if (d < 60000) return '刚刚';
+  if (d < 3600000) return Math.floor(d / 60000) + '分钟前';
+  return Math.floor(d / 3600000) + '小时前';
+}
+
+function tgFeedEntryHTML(e) {
+  const who = e.mine ? '你' : esc(e.user || '?');
+  const s = e.song;
+  let ico = '·', txt = '', cls = '';
+  if (e.type === 'track') {
+    txt = `<b>${who}</b> 放了 <b>${esc((s && s.name) || '一首歌')}</b>`;
+  } else if (e.type === 'heart') {
+    cls = 'heart'; ico = '♥';
+    txt = `<b>${who}</b> 心动了${s && s.name ? ' · ' + esc(s.name) : ''}`;
+  } else if (e.type === 'quote') {
+    ico = '“';
+    txt = `<b>${who}</b> 记下一句：${esc((e.line || '').slice(0, 30))}`;
+  } else if (e.type === 'hello') {
+    txt = e.mine ? `<b>你</b> 打开了房间` : `<b>${who}</b> 来了`;
+  } else if (e.type === 'bye') {
+    txt = `<b>${who}</b> 离开了`;
+  }
+  const lead = (e.type === 'track' && s && s.cover)
+    ? `<img src="${esc(s.cover)}" class="tg-evt-cover" alt="" />`
+    : `<div class="tg-evt-ico">${ico}</div>`;
+  return `<div class="tg-evt ${cls} ${e.mine ? 'mine' : ''}">
+    ${lead}
+    <div class="tg-evt-txt">${txt}</div>
+    <div class="tg-evt-time">${tgRelTime(e.ts)}</div>
+  </div>`;
+}
+
+function renderTogetherPanel() {
+  if (!together.panelOpen) return;
+  const v = document.getElementById('together-view');
+  if (!v) return;
+  const on = together.on;
+  const partners = together.partners;
+  const you = together.user || '你';
+
+  let status;
+  if (!on) {
+    status = '房间关着。开一间，和她一起听同一首歌，同一个此刻。';
+  } else if (partners.length === 0) {
+    status = `房间开着，在等人来<span class="accent"> · ${esc(you)}</span>`;
+  } else {
+    status = `正在和 <span class="accent">${esc(partners.join('、'))}</span> 一起听`;
+  }
+
+  let presence = '';
+  if (on) {
+    const people = [{ name: you, you: true }].concat(partners.map(p => ({ name: p, you: false })));
+    presence = '<div class="tg-presence">' + people.map(pp => `
+      <div class="tg-person live">
+        <div class="tg-ava">${tgAvatar(pp.name, pp.you)}</div>
+        <div class="tg-person-name">${pp.you ? '你' : esc(pp.name)}</div>
+      </div>`).join('') + '</div>';
+  }
+
+  let now = '';
+  if (on && state.song) {
+    const s = state.song;
+    let by = '';
+    if (together.controlledBy) {
+      by = together.controlledBy === you ? '你在放' : esc(together.controlledBy) + ' 在放';
+    }
+    now = `
+      <div class="tg-now">
+        <img src="${esc(s.cover)}" class="tg-now-cover" alt="" />
+        <div class="tg-now-info">
+          <div class="tg-now-name">${esc(s.name)}</div>
+          <div class="tg-now-sub">${esc(s.artist)}</div>
+          ${by ? `<div class="tg-now-by">${by}</div>` : ''}
+        </div>
+        <button class="tg-heart" id="tg-heart" title="送一颗心">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 21s-7.5-4.9-10-9.2C.3 8.6 1.7 5 5 5c2 0 3.2 1.1 4 2.3C9.8 6.1 11 5 13 5c3.3 0 4.7 3.6 3 6.8C19.5 16.1 12 21 12 21z"/></svg>
+        </button>
+      </div>`;
+  }
+
+  let feed = '';
+  if (on) {
+    const items = together.feed;
+    feed = `<div class="tg-feed-hd">此刻</div><div class="tg-feed" id="tg-feed">`
+      + (items.length
+          ? items.map(tgFeedEntryHTML).join('')
+          : '<div class="tg-feed-empty">还没有动静，放首歌吧</div>')
+      + `</div>`;
+  }
+
+  v.innerHTML = `
+    <div class="tg-scrim" id="tg-scrim"></div>
+    <div class="tg-sheet">
+      <div class="tg-handle"></div>
+      <div class="tg-head">
+        <div class="tg-title">一起听歌</div>
+        <button class="tg-close" id="tg-close">✕</button>
+      </div>
+      <div class="tg-status">${status}</div>
+      ${presence}
+      ${now}
+      ${feed}
+      <button class="tg-toggle ${on ? 'on' : ''}" id="tg-toggle">${on ? '离开房间' : '开一间房 · 一起听'}</button>
+    </div>`;
+
+  document.getElementById('tg-scrim').onclick = closeTogether;
+  document.getElementById('tg-close').onclick = closeTogether;
+  document.getElementById('tg-toggle').onclick = toggleTogether;
+  const hb = document.getElementById('tg-heart');
+  if (hb) hb.onclick = sendHeartFromPanel;
+  const fe = document.getElementById('tg-feed');
+  if (fe) fe.scrollTop = fe.scrollHeight;
+}
+
+function sendHeartFromPanel() {
+  if (!together.on) { showToast('先开一间房'); return; }
+  if (!state.song) return;
+  publishRoom('heart', { song: roomSong() });
+  spawnHeartBloom();
+}
+
+function spawnHeartBloom() {
+  const h = document.createElement('div');
+  h.className = 'tg-float-heart';
+  h.textContent = '♥';
+  document.body.appendChild(h);
+  setTimeout(() => h.remove(), 900);
 }
 
 window.addEventListener('pagehide', () => {
@@ -917,7 +1210,8 @@ function renderApp() {
       </button>
     </nav>
     <div class="lyrics-view hidden" id="lyrics-view"></div>
-    <div class="memory-view hidden" id="memory-view"></div>`;
+    <div class="memory-view hidden" id="memory-view"></div>
+    <div class="together-view hidden" id="together-view"></div>`;
 
   // Nav tabs
   document.getElementById('bottom-nav').addEventListener('click', e => {
@@ -938,8 +1232,8 @@ function renderApp() {
     openLyrics();
   });
 
-  // Listen together toggle
-  document.getElementById('together-btn').addEventListener('click', toggleTogether);
+  // Listen together — topbar button opens the room panel
+  document.getElementById('together-btn').addEventListener('click', openTogether);
   renderTogetherBtn();
 
   renderTab();
