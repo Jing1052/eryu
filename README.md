@@ -5,7 +5,9 @@ A self-hosted music player for listening together. Powered by NetEase Cloud Musi
 ## Features
 
 - **Search & Play** — Full NetEase Cloud Music catalog with VIP-quality streams
+- **Listen Together** — Real-time two-person sync (play/pause/seek/track) via long-polling, with presence and activity toasts — no WebSocket dependency
 - **Synced Lyrics** — Real-time scrolling lyrics with tap-to-seek and draggable progress bar
+- **Lyric Quotes** — Long-press any lyric line to save it into the song's permanent memory
 - **Translation** — Foreign songs automatically show Chinese translation
 - **Playlists** — Create and manage multiple playlists
 - **Roam Mode** — Auto-discover similar songs when the queue is empty
@@ -76,6 +78,11 @@ All endpoints require `X-Auth-Token` header (or `?token=` query param).
 ### Remote
 - `POST /music/remote` — Push a song to the player
 - `GET /music/remote` — Poll for pushed song
+
+### Listen Together
+- `GET /music/room` — Room snapshot: live playback state + who's here (`?room=` for private rooms, default `main`)
+- `GET /music/room/poll?since=N` — Long-poll for new events (returns within 25s, or instantly when something happens)
+- `POST /music/room/event` — Publish an event: `{user, type, song?, position?, line?}`. Types `track/play/pause/seek` drive the shared player state; `hello/bye/heart/quote` are activity-feed only
 
 ## For AI Companions
 

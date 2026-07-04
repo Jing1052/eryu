@@ -13,6 +13,7 @@ Zero external dependencies (Python stdlib only). Handles:
   - Roam mode (random genre discovery)
   - Similar song discovery
   - Remote play (push a song to another client)
+  - Listen-together room sync (long-poll: play/pause/seek/track + presence)
   - Background audio analysis (via analyze_song.py subprocess)
   - Listen-complete tracking (together count)
   - Static file serving for cached mp3s and frontend
@@ -78,6 +79,116 @@ def _load_or_create_secret() -> str:
     except Exception as e:
         logger.warning("Could not auto-generate secret: %s", e)
         return ""
+
+
+# ── Listen-together room ─────────────────────────────────────────────────────
+
+class Room:
+    """In-memory listen-together room: event log + live playback state + presence.
+
+    Ephemeral by design — sync state has no value across restarts. Clients
+    long-poll /music/room/poll; publishers POST /music/room/event. The server
+    only interprets track/play/pause/seek to keep the room state current;
+    every other event type (hello, bye, heart, quote, ...) is feed-only.
+    """
+    MAX_EVENTS = 200
+    PRESENCE_TTL = 45  # seconds without a poll before a user drops off
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.seq = 0
+        self.events: list[dict] = []
+        self.state: dict[str, Any] = {
+            "song": None, "playing": False, "position": 0.0,
+            "anchor": time.time(), "updatedBy": "",
+        }
+        self.presence: dict[str, float] = {}
+
+    def touch(self, user: str):
+        if user:
+            with self.cond:
+                self.presence[user] = time.time()
+
+    def _users_locked(self) -> list[str]:
+        now = time.time()
+        return [u for u, t in self.presence.items() if now - t < self.PRESENCE_TTL]
+
+    def _live_position_locked(self) -> float:
+        pos = self.state["position"]
+        if self.state["playing"]:
+            pos += time.time() - self.state["anchor"]
+        return pos
+
+    def _snapshot_locked(self) -> dict:
+        return {
+            "song": self.state["song"],
+            "playing": self.state["playing"],
+            "position": self._live_position_locked(),
+            "updatedBy": self.state["updatedBy"],
+        }
+
+    def publish(self, user: str, etype: str, body: dict) -> int:
+        with self.cond:
+            self.seq += 1
+            evt: dict[str, Any] = {"seq": self.seq, "ts": time.time(), "user": user, "type": etype}
+            for k in ("song", "position", "line"):
+                if body.get(k) is not None:
+                    evt[k] = body[k]
+            self.events.append(evt)
+            del self.events[:-self.MAX_EVENTS]
+            now = time.time()
+            st = self.state
+            pos = body.get("position")
+            if etype == "track" and body.get("song"):
+                st.update(song=body["song"], playing=True,
+                          position=float(pos or 0.0), anchor=now, updatedBy=user)
+            elif etype == "play":
+                st["position"] = float(pos) if pos is not None else self._live_position_locked()
+                st.update(playing=True, anchor=now, updatedBy=user)
+            elif etype == "pause":
+                st["position"] = float(pos) if pos is not None else self._live_position_locked()
+                st.update(playing=False, anchor=now, updatedBy=user)
+            elif etype == "seek" and pos is not None:
+                st.update(position=float(pos), anchor=now, updatedBy=user)
+            self.presence[user] = now
+            self.cond.notify_all()
+            return self.seq
+
+    def poll(self, since: int, timeout: float = 25.0) -> dict:
+        deadline = time.time() + timeout
+        with self.cond:
+            while self.seq <= since:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                self.cond.wait(remaining)
+            return {
+                "seq": self.seq,
+                "events": [e for e in self.events if e["seq"] > since],
+                "state": self._snapshot_locked(),
+                "users": self._users_locked(),
+            }
+
+    def info(self) -> dict:
+        with self.cond:
+            return {
+                "seq": self.seq,
+                "state": self._snapshot_locked(),
+                "users": self._users_locked(),
+            }
+
+
+_rooms: dict[str, Room] = {}
+_rooms_lock = threading.Lock()
+
+
+def get_room(name: str = "") -> Room:
+    name = (name or "main")[:64]
+    with _rooms_lock:
+        room = _rooms.get(name)
+        if room is None:
+            room = _rooms[name] = Room()
+        return room
 
 
 # ── Request handler ──────────────────────────────────────────────────────────
@@ -392,6 +503,10 @@ class EryuHandler(BaseHTTPRequestHandler):
             self._handle_music_similar()
         elif path == "/music/remote":
             self._handle_music_remote_get()
+        elif path == "/music/room":
+            self._handle_room_info()
+        elif path == "/music/room/poll":
+            self._handle_room_poll()
         elif path == "/music/analyze/status":
             self._handle_analyze_status()
         else:
@@ -433,6 +548,8 @@ class EryuHandler(BaseHTTPRequestHandler):
             self._handle_music_profile_update(body)
         elif path == "/music/remote":
             self._handle_music_remote_post(body)
+        elif path == "/music/room/event":
+            self._handle_room_event(body)
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -874,6 +991,19 @@ class EryuHandler(BaseHTTPRequestHandler):
                 entry["feeling"] = body["feeling"]
             if body.get("favoriteLines"):
                 entry["favoriteLines"] = body["favoriteLines"]
+        elif action == "fav_line":
+            line = str(body.get("line", "")).strip()
+            if not line:
+                self._send_json(400, {"error": "missing line"})
+                return
+            lines = entry.get("favoriteLines") or []
+            if line not in lines:
+                lines.append(line)
+            entry["favoriteLines"] = lines
+            if body.get("name"):
+                entry["name"] = body["name"]
+            if body.get("artist"):
+                entry["artist"] = body["artist"]
         mem[song_id] = entry
         self._save_song_memory(mem)
         self._send_json(200, {"ok": True, "memory": entry})
@@ -1101,6 +1231,40 @@ class EryuHandler(BaseHTTPRequestHandler):
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps(song, ensure_ascii=False))
         self._send_json(200, {"ok": True})
+
+    # ── Listen-together room sync ──
+
+    def _handle_room_info(self):
+        qs = parse_qs(urlparse(self.path).query)
+        room = get_room((qs.get("room") or [""])[0])
+        user = (qs.get("user") or [""])[0].strip()[:64]
+        room.touch(user)
+        self._send_json(200, {"ok": True, **room.info()})
+
+    def _handle_room_poll(self):
+        qs = parse_qs(urlparse(self.path).query)
+        room = get_room((qs.get("room") or [""])[0])
+        user = (qs.get("user") or [""])[0].strip()[:64]
+        try:
+            since = int((qs.get("since") or ["0"])[0])
+        except ValueError:
+            since = 0
+        try:
+            timeout = min(25.0, max(0.0, float((qs.get("timeout") or ["25"])[0])))
+        except ValueError:
+            timeout = 25.0
+        room.touch(user)
+        self._send_json(200, {"ok": True, **room.poll(since, timeout)})
+
+    def _handle_room_event(self, body: dict):
+        user = str(body.get("user", "")).strip()[:64]
+        etype = str(body.get("type", "")).strip()[:32]
+        if not user or not etype:
+            self._send_json(400, {"error": "missing user or type"})
+            return
+        room = get_room(str(body.get("room", "")))
+        seq = room.publish(user, etype, body)
+        self._send_json(200, {"ok": True, "seq": seq})
 
     # ── Roam mode (random genre discovery) ──
 

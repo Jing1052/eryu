@@ -92,6 +92,14 @@ img { display: block; }
   background: none; border: none; color: var(--ink); padding: 4px;
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
 }
+.together-btn { position: relative; opacity: 0.35; transition: opacity 0.15s, color 0.15s; }
+.together-btn.on { opacity: 1; color: var(--accent); }
+.together-dot {
+  position: absolute; top: 5px; right: 3px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--good); display: none;
+  box-shadow: 0 0 4px var(--good);
+}
+.together-btn.partner .together-dot { display: block; }
 
 /* ── Body (tab content) ── */
 .tab-body {
@@ -564,8 +572,17 @@ audio.addEventListener('timeupdate', () => {
   state.progress = state.duration ? audio.currentTime / state.duration : 0;
   notify();
 });
-audio.addEventListener('play', () => { state.playing = true; notify(); });
-audio.addEventListener('pause', () => { state.playing = false; notify(); });
+audio.addEventListener('play', () => {
+  state.playing = true; notify();
+  if (canPubTransport()) publishRoom('play', { position: audio.currentTime });
+});
+audio.addEventListener('pause', () => {
+  state.playing = false; notify();
+  // audio.ended fires a pause first; that's the natural end, not a user pause
+  if (!audio.ended && audio.currentTime > 0 && canPubTransport()) {
+    publishRoom('pause', { position: audio.currentTime });
+  }
+});
 audio.addEventListener('ended', () => {
   state.playing = false;
   notify();
@@ -573,25 +590,48 @@ audio.addEventListener('ended', () => {
     apiPost('/music/listen-complete', {
       songId: state.song.songId,
       name: state.song.name,
-      artist: state.song.artist
+      artist: state.song.artist,
+      source: (together.on && together.partners.length > 0) ? 'together' : ''
     }).catch(() => {});
   }
   playNext();
+});
+
+// Seek applied once the new track's metadata is ready (used by room sync)
+let pendingSeek = null;
+audio.addEventListener('loadedmetadata', () => {
+  if (pendingSeek != null) {
+    const p = pendingSeek;
+    pendingSeek = null;
+    try { audio.currentTime = p; } catch {}
+  }
 });
 
 async function loadAndPlay(song) {
   if (!song || !song.songId) return;
   state.song = song;
   notifySong();
+  if (canPub()) {
+    // Swallow the play/pause noise around the src swap; partners get one clean track event
+    together.softMuteUntil = Date.now() + 1000;
+    publishRoom('track', { song: roomSong(song), position: 0 });
+  }
   try {
     const d = await api('/music/url?id=' + song.songId);
     if (d.url) {
       audio.src = d.url;
       audio.play().catch(() => {});
+      prefetchNext();
     }
   } catch (e) {
     console.error('loadAndPlay error', e);
   }
+}
+
+function prefetchNext() {
+  // Warm the server cache for the next queued song so it starts instantly
+  const nxt = state.queue[0];
+  if (nxt?.songId) api('/music/url?id=' + nxt.songId).catch(() => {});
 }
 
 function togglePlay() {
@@ -635,6 +675,170 @@ function toggleRoam() {
   state.roam = !state.roam;
   notify();
 }
+
+// ══════════════════════════════════════════
+// ── Listen Together (room sync) ──
+// ══════════════════════════════════════════
+// Long-poll based: local play/pause/seek/track publish events, remote events
+// are applied to the local player. Mute windows stop echo loops: muteUntil
+// silences everything while applying a remote event; softMuteUntil silences
+// only transport events (play/pause/seek) around a local track swap.
+
+const together = {
+  on: false,
+  user: '',
+  lastSeq: 0,
+  partners: [],
+  polling: false,
+  muteUntil: 0,
+  softMuteUntil: 0,
+};
+
+function canPub() { return together.on && Date.now() >= together.muteUntil; }
+function canPubTransport() { return canPub() && Date.now() >= together.softMuteUntil; }
+
+function publishRoom(type, extra) {
+  apiPost('/music/room/event', { user: together.user, type, ...(extra || {}) }).catch(() => {});
+}
+
+function roomSong(s) {
+  const x = s || state.song;
+  if (!x) return null;
+  return { songId: x.songId, name: x.name || '', artist: x.artist || '', cover: x.cover || '', album: x.album || '' };
+}
+
+function togetherUser() {
+  let u = localStorage.getItem('eryu_user') || homeProfile?.name || '';
+  if (!u) u = (prompt('your name in the room?') || '').trim();
+  if (u) localStorage.setItem('eryu_user', u);
+  return u;
+}
+
+async function toggleTogether() {
+  if (together.on) {
+    publishRoom('bye');
+    together.on = false;
+    together.partners = [];
+    renderTogetherBtn();
+    showToast('left the room');
+    return;
+  }
+  const u = togetherUser();
+  if (!u) return;
+  together.user = u;
+  together.on = true;
+  together.muteUntil = 0;
+  together.softMuteUntil = 0;
+  renderTogetherBtn();
+  let d = null;
+  try { d = await api('/music/room?user=' + encodeURIComponent(u)); } catch {}
+  together.lastSeq = d?.seq || 0;
+  together.partners = (d?.users || []).filter(x => x !== u);
+  publishRoom('hello');
+  if (together.partners.length > 0 && d?.state?.song) {
+    applyRoomState(d.state);
+    showToast('listening with ' + together.partners.join(', '));
+  } else {
+    if (state.song && state.playing) {
+      publishRoom('track', { song: roomSong(), position: audio.currentTime });
+    }
+    showToast('room is open');
+  }
+  renderTogetherBtn();
+  pollRoom();
+}
+
+function applyRoomState(st) {
+  if (!st?.song) return;
+  together.muteUntil = Date.now() + 5000;
+  if (state.song) state.history.push(state.song);
+  pendingSeek = (st.position && st.position > 1) ? st.position : null;
+  loadAndPlay(st.song).then(() => {
+    if (!st.playing) setTimeout(() => {
+      together.muteUntil = Date.now() + 800;
+      audio.pause();
+    }, 300);
+  });
+}
+
+async function pollRoom() {
+  if (together.polling) return;
+  together.polling = true;
+  while (together.on) {
+    try {
+      const d = await api('/music/room/poll?since=' + together.lastSeq
+        + '&user=' + encodeURIComponent(together.user));
+      if (!together.on) break;
+      if (d.seq != null) together.lastSeq = d.seq;
+      const prev = together.partners.join(',');
+      together.partners = (d.users || []).filter(x => x !== together.user);
+      if (together.partners.join(',') !== prev) renderTogetherBtn();
+      for (const e of (d.events || [])) {
+        if (e.user === together.user) continue;
+        applyRoomEvent(e);
+      }
+    } catch {
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  together.polling = false;
+}
+
+function applyRoomEvent(e) {
+  const who = e.user || '?';
+  if (e.type === 'track' && e.song) {
+    // Both clients auto-advance to the same queued song — don't restart it
+    if (e.song.songId === state.song?.songId && !audio.paused && audio.currentTime < 8) return;
+    together.muteUntil = Date.now() + 5000;
+    if (state.song) state.history.push(state.song);
+    pendingSeek = (e.position && e.position > 2) ? e.position : null;
+    loadAndPlay(e.song);
+    showToast(who + ' ▶ ' + (e.song.name || ''));
+  } else if (e.type === 'play') {
+    together.muteUntil = Date.now() + 1200;
+    if (e.position != null && state.duration && Math.abs(audio.currentTime - e.position) > 2) {
+      audio.currentTime = Math.min(e.position, state.duration);
+    }
+    audio.play().catch(() => {});
+    showToast(who + ' pressed play');
+  } else if (e.type === 'pause') {
+    together.muteUntil = Date.now() + 1200;
+    audio.pause();
+    showToast(who + ' paused');
+  } else if (e.type === 'seek' && e.position != null) {
+    together.muteUntil = Date.now() + 1200;
+    if (state.duration) audio.currentTime = Math.min(e.position, state.duration);
+    else pendingSeek = e.position;
+  } else if (e.type === 'heart') {
+    showToast(who + ' ♥ ' + (e.song?.name || ''));
+  } else if (e.type === 'quote') {
+    showToast(who + ' saved a line: ' + (e.line || '').slice(0, 24));
+  } else if (e.type === 'hello') {
+    showToast(who + ' is here');
+    renderTogetherBtn();
+  } else if (e.type === 'bye') {
+    showToast(who + ' left');
+  }
+}
+
+function renderTogetherBtn() {
+  const btn = document.getElementById('together-btn');
+  if (!btn) return;
+  btn.classList.toggle('on', together.on);
+  btn.classList.toggle('partner', together.on && together.partners.length > 0);
+  btn.title = together.on
+    ? (together.partners.length ? 'listening with ' + together.partners.join(', ') : 'alone in the room')
+    : 'listen together';
+}
+
+window.addEventListener('pagehide', () => {
+  if (together.on && together.user) {
+    try {
+      navigator.sendBeacon('/music/room/event?token=' + encodeURIComponent(auth()),
+        JSON.stringify({ user: together.user, type: 'bye' }));
+    } catch {}
+  }
+});
 
 // ── Escape HTML ──
 function esc(s) {
@@ -689,7 +893,12 @@ function renderApp() {
   app.innerHTML = `
     <div class="app-bg" id="app-bg"></div>
     <div class="topbar">
+      <div style="width:36px"></div>
       <div class="topbar-title">eryu</div>
+      <button class="topbar-btn together-btn" id="together-btn" title="listen together">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="together-dot"></span>
+      </button>
     </div>
     <div class="tab-body" id="tab-body"></div>
     <div class="np-bar hidden" id="np-bar"></div>
@@ -728,6 +937,10 @@ function renderApp() {
     if (e.target.closest('.np-btn') || e.target.closest('.np-next-btn')) return;
     openLyrics();
   });
+
+  // Listen together toggle
+  document.getElementById('together-btn').addEventListener('click', toggleTogether);
+  renderTogetherBtn();
 
   renderTab();
   renderNpBar();
@@ -1291,6 +1504,7 @@ async function likeSong(s) {
   await apiPost('/music/playlist/add', { song: s, by: 'user' });
   likedIds.add(s.songId);
   showToast('Liked');
+  if (canPub()) publishRoom('heart', { song: roomSong(s) });
   // Re-render discover to update heart icons
   if (currentTab === 'discover') renderTab();
 }
@@ -1441,6 +1655,7 @@ function bindSeekBar() {
     lyricsDragging = false;
     if (state.duration) {
       audio.currentTime = lyricsDragRatio * state.duration;
+      if (canPubTransport()) publishRoom('seek', { position: audio.currentTime });
     }
   };
 
@@ -1448,6 +1663,7 @@ function bindSeekBar() {
   seekEl.addEventListener('click', e => {
     if (state.duration) {
       audio.currentTime = getPos(e.clientX) * state.duration;
+      if (canPubTransport()) publishRoom('seek', { position: audio.currentTime });
     }
   });
 
@@ -1509,13 +1725,51 @@ function renderLyricLines() {
   container.innerHTML = html;
   lyricsLineEls = container.querySelectorAll('.ly-line');
 
-  // Click to seek
+  // Tap to seek; long-press to save the line into this song's memory
   lyricsLineEls.forEach(el => {
     el.addEventListener('click', () => {
+      if (lyricLongPressed) { lyricLongPressed = false; return; }
       const time = parseFloat(el.dataset.time);
-      if (!isNaN(time)) audio.currentTime = time;
+      if (!isNaN(time)) {
+        audio.currentTime = time;
+        if (canPubTransport()) publishRoom('seek', { position: time });
+      }
     });
+    let lpTimer = null;
+    const lpStart = () => {
+      lpTimer = setTimeout(() => {
+        lpTimer = null;
+        lyricLongPressed = true;
+        quoteLyricLine(parseInt(el.dataset.line));
+      }, 550);
+    };
+    const lpCancel = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+    el.addEventListener('touchstart', lpStart, { passive: true });
+    el.addEventListener('touchmove', lpCancel, { passive: true });
+    el.addEventListener('touchend', lpCancel);
+    el.addEventListener('touchcancel', lpCancel);
+    el.addEventListener('mousedown', lpStart);
+    el.addEventListener('mouseup', lpCancel);
+    el.addEventListener('mouseleave', lpCancel);
   });
+}
+
+let lyricLongPressed = false;
+
+async function quoteLyricLine(i) {
+  const s = state.song;
+  const line = lyricLines[i]?.text;
+  if (!s?.songId || !line) return;
+  try {
+    await apiPost('/music/memory', {
+      songId: s.songId, action: 'fav_line', line,
+      name: s.name, artist: s.artist
+    });
+    showToast('saved: ' + line.slice(0, 24));
+    if (canPub()) publishRoom('quote', { line, song: roomSong() });
+  } catch {
+    showToast('failed to save');
+  }
 }
 
 function renderLyricsProgress() {
