@@ -25,6 +25,10 @@
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.15);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.25);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* 装扮 — glass/background knobs, written live from the skin panel & localStorage */
+  --bg-veil: 0.5;    /* photo overlay: 0 = photo shows fully, 1 = covered by --bg */
+  --bg-blur: 0px;    /* photo blur (filter on the image itself — cheap, composited once) */
+  --card-a: 0.86;    /* surface opacity when a photo is set; 1 = solid, lower reveals photo */
 }
 
 /* ── Reset ── */
@@ -49,11 +53,39 @@ img { display: block; }
   overflow: hidden; position: relative;
 }
 .app-bg {
-  position: absolute; inset: 0;
+  position: absolute; inset: -24px;
   background-size: cover; background-position: center;
-  opacity: 0.45; pointer-events: none; z-index: 0;
+  filter: blur(var(--bg-blur));
+  opacity: 1; pointer-events: none; z-index: 0; display: none;
+}
+#app.has-bg .app-bg { display: block; }
+.app-bg::after {
+  content: ''; position: absolute; inset: 0;
+  background: var(--bg); opacity: var(--bg-veil);
 }
 #app > *:not(.app-bg) { position: relative; z-index: 1; }
+
+/* When a photo is set, the persistent surfaces go translucent so it reads
+   through. Semi-opaque solids (color-mix → transparent), NOT backdrop-filter,
+   on the always-visible bars — cheap to composite on phones. */
+#app.has-bg .bottom-nav,
+#app.has-bg .home-profile {
+  background: color-mix(in srgb, var(--bg) calc(var(--card-a) * 100%), transparent);
+}
+#app.has-bg .np-bar {
+  background: color-mix(in srgb, var(--accent) 10%, color-mix(in srgb, var(--bg) calc(var(--card-a) * 100%), transparent));
+}
+#app.has-bg .topbar {
+  background: color-mix(in srgb, var(--surface) calc(var(--card-a) * 55%), transparent);
+}
+#app.has-bg .search-bar {
+  background: color-mix(in srgb, var(--surface-2) calc(var(--card-a) * 100%), transparent);
+}
+#app.has-bg .tg-sheet {
+  background: color-mix(in srgb, var(--surface) calc(var(--card-a) * 100%), transparent);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+}
 
 /* ── Auth Overlay ── */
 .auth-overlay {
@@ -106,6 +138,9 @@ img { display: block; }
   flex: 1; overflow-y: auto; overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
 }
+.tab-body.tab-enter { animation: tabFade 0.24s ease; }
+@keyframes tabFade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tab-body.tab-enter { animation: none; } }
 
 /* ── Bottom Nav ── */
 .bottom-nav {
@@ -648,6 +683,41 @@ img { display: block; }
   background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center;
 }
 .tg-chat-send:active { opacity: 0.8; }
+
+/* ── 装扮 / skin panel ── */
+.sk-hint { font-size: 12px; color: var(--ink); opacity: 0.5; margin: 6px 0 16px; line-height: 1.4; }
+.sk-bg { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; }
+.sk-bg-input {
+  flex: 1; min-width: 0; border: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: transparent; color: var(--ink); font-size: 13px; outline: none; padding: 7px 0;
+}
+.sk-bg-input::placeholder { color: var(--ink); opacity: 0.3; }
+.sk-bg-ok {
+  background: var(--accent); border: none; color: #fff; border-radius: 10px;
+  padding: 7px 14px; font-size: 12px; flex-shrink: 0;
+}
+.sk-bg-clear { background: none; border: none; color: var(--ink); opacity: 0.4; padding: 6px; flex-shrink: 0; }
+.sk-row { margin-bottom: 16px; }
+.sk-row-hd { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.sk-row-name { font-size: 12px; color: var(--ink); opacity: 0.7; }
+.sk-row-val { font-size: 11px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.sk-range {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 3px; border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 14%, transparent); outline: none;
+}
+.sk-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); box-shadow: var(--shadow-sm); cursor: pointer;
+}
+.sk-range::-moz-range-thumb {
+  width: 18px; height: 18px; border: none; border-radius: 50%; background: var(--accent); cursor: pointer;
+}
+.sk-reset {
+  margin-top: 4px; width: 100%; padding: 12px; border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  background: transparent; color: var(--ink); opacity: 0.65; font-size: 13px;
+}
+.sk-reset:active { opacity: 1; }
 
 /* ── Toast ── */
 .toast {
@@ -1295,6 +1365,110 @@ function spawnHeartBloom() {
   setTimeout(() => h.remove(), 900);
 }
 
+// ── 装扮 / skin: full-bleed background + glass knobs (CSS vars + localStorage) ──
+const SK_VEIL_KEY = 'eryu_sk_veil';   // 0..85  → --bg-veil
+const SK_BLUR_KEY = 'eryu_sk_blur';   // 0..16px → --bg-blur
+const SK_CARD_KEY = 'eryu_sk_card';   // 0..60 "通透" → --card-a = 1 - v/100
+let skPanelOpen = false;
+
+function skNum(k, def) { const v = parseFloat(tgGet(k, '')); return isNaN(v) ? def : v; }
+
+function applySkinVars() {
+  const r = document.documentElement;
+  r.style.setProperty('--bg-veil', (skNum(SK_VEIL_KEY, 50) / 100).toFixed(2));
+  r.style.setProperty('--bg-blur', skNum(SK_BLUR_KEY, 0) + 'px');
+  r.style.setProperty('--card-a', (1 - skNum(SK_CARD_KEY, 14) / 100).toFixed(2));
+}
+
+function applyBg() {
+  const app = document.getElementById('app');
+  const bgEl = document.getElementById('app-bg');
+  const url = (homeProfile && homeProfile.appBg) || '';
+  if (bgEl) bgEl.style.backgroundImage = url ? `url("${url.replace(/"/g, '%22')}")` : '';
+  if (app) app.classList.toggle('has-bg', !!url);
+}
+
+function skSetBg(url) {
+  if (!homeProfile) homeProfile = { name: '', signature: '', avatar: '', bg: '', appBg: '' };
+  homeProfile.appBg = url;
+  apiPost('/music/profile', { appBg: url }).catch(() => {});
+  applyBg();
+  renderSkin();
+}
+
+function openSkin() {
+  skPanelOpen = true;
+  renderSkin();
+  const v = document.getElementById('skin-view');
+  if (v) v.classList.remove('hidden');
+}
+
+function closeSkin() {
+  skPanelOpen = false;
+  const v = document.getElementById('skin-view');
+  if (v) v.classList.add('hidden');
+}
+
+function skRow(name, id, val, min, max, unit) {
+  return `<div class="sk-row">
+    <div class="sk-row-hd"><div class="sk-row-name">${name}</div><div class="sk-row-val" id="${id}-val">${val}${unit}</div></div>
+    <input type="range" class="sk-range" id="${id}" min="${min}" max="${max}" value="${val}" />
+  </div>`;
+}
+
+function skBindRange(id, key, unit) {
+  const el = document.getElementById(id);
+  const lab = document.getElementById(id + '-val');
+  if (!el) return;
+  el.oninput = () => {
+    if (lab) lab.textContent = el.value + unit;
+    tgSet(key, el.value);
+    applySkinVars();
+  };
+}
+
+function renderSkin() {
+  if (!skPanelOpen) return;
+  const v = document.getElementById('skin-view');
+  if (!v) return;
+  const url = (homeProfile && homeProfile.appBg) || '';
+  const veil = skNum(SK_VEIL_KEY, 50), blur = skNum(SK_BLUR_KEY, 0), card = skNum(SK_CARD_KEY, 14);
+  v.innerHTML = `
+    <div class="tg-scrim" id="sk-scrim"></div>
+    <div class="tg-sheet">
+      <div class="tg-handle"></div>
+      <div class="tg-head">
+        <div class="tg-title">装扮</div>
+        <button class="tg-close" id="sk-close">✕</button>
+      </div>
+      <div class="sk-hint">给这里换一张背景，卡片会透出它。背景和透明度都实时生效。</div>
+      <div class="sk-bg">
+        <input class="sk-bg-input" id="sk-bg-input" placeholder="背景图片链接…" value="${esc(url)}" autocomplete="off" />
+        <button class="sk-bg-ok" id="sk-bg-ok">用它</button>
+        ${url ? `<button class="sk-bg-clear" id="sk-bg-clear" title="清除背景">✕</button>` : ''}
+      </div>
+      ${skRow('背景蒙版', 'sk-veil', veil, 0, 85, '%')}
+      ${skRow('背景磨砂', 'sk-blur', blur, 0, 16, 'px')}
+      ${skRow('卡片通透', 'sk-card', card, 0, 60, '%')}
+      <button class="sk-reset" id="sk-reset">恢复默认</button>
+    </div>`;
+  document.getElementById('sk-scrim').onclick = closeSkin;
+  document.getElementById('sk-close').onclick = closeSkin;
+  const inp = document.getElementById('sk-bg-input');
+  document.getElementById('sk-bg-ok').onclick = () => skSetBg((inp.value || '').trim());
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); skSetBg((inp.value || '').trim()); } });
+  const clr = document.getElementById('sk-bg-clear');
+  if (clr) clr.onclick = () => skSetBg('');
+  skBindRange('sk-veil', SK_VEIL_KEY, '%');
+  skBindRange('sk-blur', SK_BLUR_KEY, 'px');
+  skBindRange('sk-card', SK_CARD_KEY, '%');
+  document.getElementById('sk-reset').onclick = () => {
+    [SK_VEIL_KEY, SK_BLUR_KEY, SK_CARD_KEY].forEach(k => { try { localStorage.removeItem(k); } catch {} });
+    applySkinVars();
+    renderSkin();
+  };
+}
+
 window.addEventListener('pagehide', () => {
   if (together.on && together.user) {
     try {
@@ -1326,6 +1500,7 @@ onSongChange(() => { renderNpBar(); loadLyrics(); });
 
 // ── Auth check + initial render ──
 function init() {
+  applySkinVars();
   if (!auth()) {
     renderAuth();
   } else {
@@ -1357,7 +1532,9 @@ function renderApp() {
   app.innerHTML = `
     <div class="app-bg" id="app-bg"></div>
     <div class="topbar">
-      <div style="width:36px"></div>
+      <button class="topbar-btn" id="skin-btn" title="装扮" style="opacity:0.55">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="17.5" cy="10.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="8.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12.5" r="1.2" fill="currentColor" stroke="none"/><path d="M12 2C6.5 2 2 6 2 11c0 4 3 7 7 7 1.5 0 2-1 2-2 0-.5-.3-1-.3-1.5 0-1 .8-1.5 1.8-1.5H14c3.3 0 6-2.5 6-6 0-3.6-3.6-6.5-8-6.5z"/></svg>
+      </button>
       <div class="topbar-title">eryu</div>
       <button class="topbar-btn together-btn" id="together-btn" title="listen together">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1382,7 +1559,8 @@ function renderApp() {
     </nav>
     <div class="lyrics-view hidden" id="lyrics-view"></div>
     <div class="memory-view hidden" id="memory-view"></div>
-    <div class="together-view hidden" id="together-view"></div>`;
+    <div class="together-view hidden" id="together-view"></div>
+    <div class="together-view hidden" id="skin-view"></div>`;
 
   // Nav tabs
   document.getElementById('bottom-nav').addEventListener('click', e => {
@@ -1405,6 +1583,7 @@ function renderApp() {
 
   // Listen together — topbar button opens the room panel
   document.getElementById('together-btn').addEventListener('click', openTogether);
+  document.getElementById('skin-btn').addEventListener('click', openSkin);
   renderTogetherBtn();
 
   renderTab();
@@ -1424,6 +1603,7 @@ function updateNavActive() {
 function renderTab() {
   const body = document.getElementById('tab-body');
   if (!body) return;
+  body.classList.remove('tab-enter'); void body.offsetWidth; body.classList.add('tab-enter');
   if (currentTab === 'home') renderHome(body);
   else if (currentTab === 'playlists') renderPlaylists(body);
   else if (currentTab === 'discover') renderDiscover(body);
@@ -1434,7 +1614,16 @@ let homeProfile = null;
 let homeRecent = [];
 
 async function renderHome(container) {
-  container.innerHTML = '<div class="home-tab"><div class="spinner"></div></div>';
+  // Native feel: if we've loaded this before, paint instantly from cache and
+  // refresh silently — no spinner flash on tab revisits.
+  const haveCache = !!homeProfile;
+  if (haveCache) {
+    container.innerHTML = buildHomeHTML();
+    bindHomeEvents(container);
+    applyBg();
+  } else {
+    container.innerHTML = '<div class="home-tab"><div class="spinner"></div></div>';
+  }
 
   const [profRes, recentRes] = await Promise.all([
     api('/music/profile').catch(() => ({})),
@@ -1443,14 +1632,9 @@ async function renderHome(container) {
   if (profRes.ok) homeProfile = profRes.profile;
   if (recentRes.ok) homeRecent = recentRes.songs || [];
 
-  if (!homeProfile) homeProfile = { name: '', signature: '', avatar: '', bg: '' };
+  if (!homeProfile) homeProfile = { name: '', signature: '', avatar: '', bg: '', appBg: '' };
 
-  // Set app bg
-  if (homeProfile.appBg) {
-    const bgEl = document.getElementById('app-bg');
-    if (bgEl) bgEl.style.backgroundImage = 'url(' + homeProfile.appBg + ')';
-  }
-
+  applyBg();
   container.innerHTML = buildHomeHTML();
   bindHomeEvents(container);
 }
