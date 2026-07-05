@@ -131,7 +131,8 @@ class Room:
         with self.cond:
             self.seq += 1
             evt: dict[str, Any] = {"seq": self.seq, "ts": time.time(), "user": user, "type": etype}
-            for k in ("song", "position", "line"):
+            # say 事件的正文在 text 字段——漏掉它，对方收到的「边听边说」气泡永远是空的。
+            for k in ("song", "position", "line", "text"):
                 if body.get(k) is not None:
                     evt[k] = body[k]
             self.events.append(evt)
@@ -1318,7 +1319,9 @@ class EryuHandler(BaseHTTPRequestHandler):
                     })
             if songs:
                 pick = random.choice(songs)
-                self._send_json(200, {"ok": True, "song": pick})
+                # 客户端 roam() 走 _songs() 读复数 songs 列表；单数 song 它读不到（漫游从不生效）。
+                # 两个键都发：songs 给客户端用，song 留作兼容。
+                self._send_json(200, {"ok": True, "songs": [pick], "song": pick})
             else:
                 self._send_json(200, {"ok": False, "error": "no songs found"})
         except Exception as e:
